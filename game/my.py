@@ -4,7 +4,6 @@ from direct.showbase.ShowBase import ShowBase
 from direct.task import Task
 from panda3d.core import WindowProperties
 import sys
-import random
 
 
 class MinecraftPhysics(ShowBase):
@@ -24,8 +23,10 @@ class MinecraftPhysics(ShowBase):
         # Player setup
         self.create_player()
 
-        # Create grid of blocks instead of single platform
-        self.create_block_grid()
+        # Create ground blocks
+        self.block_model = loader.loadModel("models/box")
+        self.block_model.setTexture(loader.loadTexture("models/maps/envir-ground.jpg"))
+        self.create_ground_blocks()
 
         # Input keys
         self.keys = {"w": False, "s": False, "a": False, "d": False, "space": False}
@@ -34,8 +35,28 @@ class MinecraftPhysics(ShowBase):
             self.accept(f"{key}-up", self.set_key, [key, False])
         self.accept("escape", sys.exit)
 
+        # Mouse click to place blocks
+        self.accept("mouse1", self.place_block)
+
+        # Create crosshair
+        self.create_crosshair()
+
         # Update loop
         self.taskMgr.add(self.update, "update")
+
+    def create_crosshair(self):
+        """Create a simple crosshair in the center of the screen"""
+        # Vertical line
+        cm = CardMaker('crosshair_v')
+        cm.setFrame(-0.008, 0.008, -0.04, 0.04)  # Width, height
+        self.crosshair_v = self.aspect2d.attachNewNode(cm.generate())
+        self.crosshair_v.setColor(1, 1, 1, 1)  # White color
+        
+        # Horizontal line
+        cm = CardMaker('crosshair_h')
+        cm.setFrame(-0.04, 0.04, -0.008, 0.008)  # Width, height
+        self.crosshair_h = self.aspect2d.attachNewNode(cm.generate())
+        self.crosshair_h.setColor(1, 1, 1, 1)  # White color
 
     def set_key(self, key, value):
         self.keys[key] = value
@@ -48,58 +69,48 @@ class MinecraftPhysics(ShowBase):
         shape = BulletCapsuleShape(0.4, 1.0, ZUp)
         self.player_node = BulletCharacterControllerNode(shape, 0.4, 'Player')
         self.player_np = render.attachNewNode(self.player_node)
-        self.player_np.setPos(0, 0, 3)  # Start higher to avoid falling through blocks
+        self.player_np.setPos(0, 0, 5)
         self.physics_world.attachCharacter(self.player_node)
 
         self.camera.reparentTo(self.player_np)
-        self.camera.setZ(1.5)
+        self.camera.setZ(1.0)
 
         self.heading = 0
         self.pitch = 0
         self.mouse_sensitivity = 0.2
 
+    def create_ground_blocks(self):
+        block_size = 1.0
+        grid_size = 10  # Number of blocks in each direction
+
+        for x in range(-grid_size, grid_size):
+            for y in range(-grid_size, grid_size):
+                self.create_block(x * block_size, y * block_size, 0)
+
     def create_block(self, x, y, z):
-        block_size = 1.5  # Increased size for hitbox
-        half_size = block_size / 2
-        
-        # Create collision shape
-        shape = BulletBoxShape(Vec3(half_size, half_size, half_size))
-        node = BulletRigidBodyNode(f'Block_{x}_{y}')
+        shape = BulletBoxShape(Vec3(0.5, 0.5, 0.5))  # Half size for the block
+        node = BulletRigidBodyNode('Block')
         node.addShape(shape)
-        node.setMass(0)  # Static object
-        
-        # Position the block
+        node.setMass(0)  # Static block
+
         np = render.attachNewNode(node)
         np.setPos(x, y, z)
         self.physics_world.attachRigidBody(node)
-        
-        # Create visual representation
-        visual = loader.loadModel("models/box")
-        visual.setScale(block_size)
-        
-        # Random color for variety
-        r = random.random()
-        g = random.random()
-        b = random.random()
-        visual.setColor(r, g, b, 1)
-        
-        visual.reparentTo(np)
-        return np
 
-    def create_block_grid(self):
-        grid_size = 10  # 10x10 grid
-        spacing = 1.6  # Adjusted spacing to accommodate larger blocks
-        
-        for x in range(-grid_size//2, grid_size//2):
-            for y in range(-grid_size//2, grid_size//2):
-                # Create blocks with elevation changes
-                height = random.choice([0, 0, 0, 0.5, 1.0])  # Mostly flat with some variation
-                self.create_block(x * spacing, y * spacing, height)
+        visual = self.block_model.copyTo(np)
+        visual.setScale(1, 1, 1)
+        visual.setTexture(loader.loadTexture("models/maps/envir-ground.jpg"))
 
-        # Create a solid area under spawn point
-        for x in range(-1, 2):
-            for y in range(-1, 2):
-                self.create_block(x * spacing, y * spacing, 0)
+    def place_block(self):
+        # Get the player's position and direction
+        player_pos = self.player_np.getPos()
+        player_facing = self.camera.getQuat().getForward()  # Get the forward direction of the camera
+
+        # Calculate the position to place the block
+        block_pos = player_pos + player_facing * 2  # Place the block 2 units in front of the player
+
+        # Create the block at the calculated position
+        self.create_block(block_pos.x, block_pos.y, block_pos.z)
 
     def update(self, task):
         dt = globalClock.getDt()
@@ -136,13 +147,12 @@ class MinecraftPhysics(ShowBase):
         if self.keys["d"]:
             walk_dir += Vec3(1, 0, 0)
 
-        walk_dir = quat.xform(walk_dir)
+        walk_dir = quat.xform(walk_dir)  # Apply rotation
+        walk_dir.setZ(0)  # Keep movement on the X-Y plane
 
         if walk_dir.lengthSquared() > 0:
             walk_dir.normalize()
             walk_dir *= 5.0
-        else:
-            walk_dir = Vec3(0, 0, 0)
 
         self.player_node.setLinearMovement(walk_dir, is_local=False)
 
