@@ -2,169 +2,389 @@ from panda3d.core import *
 from panda3d.bullet import *
 from direct.showbase.ShowBase import ShowBase
 from direct.task import Task
-from panda3d.core import WindowProperties
-import sys
+from panda3d.core import KeyboardButton, WindowProperties
+from direct.gui.DirectGui import DirectButton, DirectFrame
+from direct.gui.OnscreenText import OnscreenText
+import random, sys
 
-
-class MinecraftPhysics(ShowBase):
+class MinecraftClone(ShowBase):
     def __init__(self):
         ShowBase.__init__(self)
 
+        # 🔧 Вікно
         self.disableMouse()
-        props = WindowProperties()
-        props.setCursorHidden(True)
-        self.win.requestProperties(props)
-        self.center_mouse()
 
-        # Bullet physics world
+        # Стани
+        self.game_started = False
+        self.is_dead = False
+
+        # ⚙️ Bullet Physics (ініціалізуємо завчасно)
         self.physics_world = BulletWorld()
-        self.physics_world.setGravity(Vec3(0, 0, -9.81))
+        self.physics_world.setGravity(Vec3(0, 0, -9.8))
 
-        # Player setup
-        self.create_player()
+        # 📦 Параметри світу
+        self.blocks = []
+        self.block_size = 1.5
+        self.spacing = 1.6
 
-        # Create ground blocks
-        self.block_model = loader.loadModel("models/box")
-        self.block_model.setTexture(loader.loadTexture("models/maps/envir-ground.jpg"))
-        self.create_ground_blocks()
+        # 🎮 Рух і стрибок
+        self.speed = 5
+        self.jump_speed = 6
+        self.velocity_z = 0.0
+        self.is_jumping = False
 
-        # Input keys
-        self.keys = {"w": False, "s": False, "a": False, "d": False, "space": False}
-        for key in self.keys:
-            self.accept(key, self.set_key, [key, True])
-            self.accept(f"{key}-up", self.set_key, [key, False])
-        self.accept("escape", sys.exit)
+        # 👣 Стояння на блоці
+        self.eye_height = 1.8
+        self.ground_snap_distance = 0.2
 
-        # Mouse click to place blocks
-        self.accept("mouse1", self.place_block)
+        # 💀 Смерть/відродження
+        self.death_height = -10
+        self.spawn_pos = Point3(0, 0, 10)
 
-        # Create crosshair
-        self.create_crosshair()
+        # UI
+        self.menu_ui = None
+        self.respawn_ui = None
 
-        # Update loop
+        # Звуки
+        self.place_sound = loader.loadSfx("done.mp3")
+        self.break_sound = loader.loadSfx("break.mp3")
+        self.death_sound = loader.loadSfx("death.mp3")
+        self.respawn_sound = loader.loadSfx("born.mp3")
+
+        # Керування мишею спочатку для меню (показати курсор)
+        self.show_cursor(True)
+
+        # Створити меню
+        self.create_main_menu()
+
+        # Підписки на події
+        self.accept("mouse3", self.place_block)
+        self.accept("mouse1", self.break_block)
+        self.accept("escape", self.on_escape)
+
+        # Оновлення
         self.taskMgr.add(self.update, "update")
 
-    def create_crosshair(self):
-        """Create a simple crosshair in the center of the screen"""
-        # Vertical line
-        cm = CardMaker('crosshair_v')
-        cm.setFrame(-0.008, 0.008, -0.04, 0.04)  # Width, height
-        self.crosshair_v = self.aspect2d.attachNewNode(cm.generate())
-        self.crosshair_v.setColor(1, 1, 1, 1)  # White color
-        
-        # Horizontal line
-        cm = CardMaker('crosshair_h')
-        cm.setFrame(-0.04, 0.04, -0.008, 0.008)  # Width, height
-        self.crosshair_h = self.aspect2d.attachNewNode(cm.generate())
-        self.crosshair_h.setColor(1, 1, 1, 1)  # White color
+    # ---------- КОРИСНІ МЕТОДИ ----------
+    def show_cursor(self, visible: bool):
+        props = WindowProperties()
+        props.setCursorHidden(not visible)
+        self.win.requestProperties(props)
+        # Центр для захоплення мишки під час гри
+        self.center_x = self.win.getXSize() // 2
+        self.center_y = self.win.getYSize() // 2
+        if not visible:
+            self.win.movePointer(0, self.center_x, self.center_y)
 
-    def set_key(self, key, value):
-        self.keys[key] = value
+    def on_escape(self):
+        if not self.game_started:
+            sys.exit(0)
+        # Якщо в грі — повернутися до меню паузи (можна розширити)
+        self.show_main_menu()
 
-    def center_mouse(self):
-        size = self.win.getProperties().getSize()
-        self.win.movePointer(0, int(size.x / 2), int(size.y / 2))
+    # ---------- МЕНЮ ----------
+    def create_main_menu(self):
+        if self.menu_ui is not None:
+            return
 
-    def create_player(self):
-        shape = BulletCapsuleShape(0.4, 1.0, ZUp)
-        self.player_node = BulletCharacterControllerNode(shape, 0.4, 'Player')
-        self.player_np = render.attachNewNode(self.player_node)
-        self.player_np.setPos(0, 0, 5)
-        self.physics_world.attachCharacter(self.player_node)
+        self.menu_ui = DirectFrame(
+            frameColor=(0, 0, 0, 0.7),
+            frameSize=(-1.33, 1.33, -1, 1),
+            parent=aspect2d
+        )
 
-        self.camera.reparentTo(self.player_np)
-        self.camera.setZ(1.0)
+        title = OnscreenText(
+            text="MinecraftClone",
+            pos=(0, 0.4),
+            scale=0.12,
+            fg=(1, 1, 1, 1),
+            parent=self.menu_ui
+        )
 
-        self.heading = 0
+        play_btn = DirectButton(
+            text="Грати",
+            scale=0.09,
+            pos=(0, 0, 0.05),
+            frameColor=(0.2, 1, 0.2, 1),      # зелений фон
+            text_fg=(1, 1, 1, 1),             # білий текст
+            command=self.start_game,
+            parent=self.menu_ui,
+            relief=1
+        )
+        quit_btn = DirectButton(
+            text="Вийти",
+            scale=0.09,
+            pos=(0, 0, -0.2),
+            frameColor=(1, 0.2, 0.2, 1),      # червоний фон
+            text_fg=(0, 0, 0, 1),             # чорний текст
+            command=sys.exit,
+            parent=self.menu_ui,
+            relief=1
+        )
+
+        self.menu_ui.show()
+
+    def show_main_menu(self):
+        self.show_cursor(True)
+        if self.menu_ui is None:
+            self.create_main_menu()
+        else:
+            self.menu_ui.show()
+        # Блокуємо гру
+        self.game_started = False
+
+    def hide_main_menu(self):
+        if self.menu_ui:
+            self.menu_ui.hide()
+        self.show_cursor(False)
+
+    def start_game(self):
+        # При першому старті — ініціалізуємо світ
+        if not hasattr(self, "world_initialized"):
+            self.init_world()
+            self.world_initialized = True
+
+        # Старт
+        self.game_started = True
+        self.is_dead = False
+        self.hide_main_menu()
+        # Початкова позиція камери
+        self.camera.setPos(0, 0, 5)
         self.pitch = 0
-        self.mouse_sensitivity = 0.2
+        self.yaw = 0
+        self.camera.setHpr(self.yaw, self.pitch, 0)
 
-    def create_ground_blocks(self):
-        block_size = 1.0
-        grid_size = 10  # Number of blocks in each direction
+    # ---------- ВІДРОДЖЕННЯ UI ----------
+    def create_respawn_ui(self):
+        if self.respawn_ui is not None:
+            return
 
-        for x in range(-grid_size, grid_size):
-            for y in range(-grid_size, grid_size):
-                self.create_block(x * block_size, y * block_size, 0)
+
+        self.respawn_ui = DirectFrame(
+            frameColor=(0, 0, 0, 0.6),
+            frameSize=(-1.33, 1.33, -1, 1),
+            parent=aspect2d
+        )
+
+        self.respawn_button = DirectButton(
+            text="Відро",
+            scale=0.08,
+            pos=(-0.3, 0, -0.1),
+            command=self.on_respawn_button,
+            parent=self.respawn_ui,
+            frameColor=(0.2, 1, 0.2, 1),
+            text_fg=(1, 1, 1, 1),
+            relief=1
+        )
+
+        # 🟥 Кнопка "Вийти"
+        self.quit_button = DirectButton(
+            text="Вийти",
+            scale=0.08,
+            pos=(0.3, 0, -0.1),
+            command=sys.exit,
+            parent=self.respawn_ui,
+            frameColor=(1, 0.2, 0.2, 1),
+            text_fg=(0, 0, 0, 1),
+            relief=1
+        )
+        self.respawn_ui.hide()
+
+    def show_respawn_ui(self):
+        if self.respawn_ui is None:
+            self.create_respawn_ui()
+        self.respawn_ui.show()
+        self.show_cursor(True)
+
+    def hide_respawn_ui(self):
+        if self.respawn_ui:
+            self.respawn_ui.hide()
+        self.show_cursor(False)
+
+    def on_respawn_button(self):
+        self.respawn_player()
+
+    # ---------- СВІТ ----------
+    def init_world(self):
+        # Створюємо рівну платформу
+        self.create_flat_platform()
+        # Камера
+        self.camera.setPos(self.spawn_pos)
+        self.pitch = 0
+        self.yaw = 0
+        self.camera.setHpr(self.yaw, self.pitch, 0)
 
     def create_block(self, x, y, z):
-        shape = BulletBoxShape(Vec3(0.5, 0.5, 0.5))  # Half size for the block
-        node = BulletRigidBodyNode('Block')
+        half_size = self.block_size / 2
+        shape = BulletBoxShape(Vec3(half_size, half_size, half_size))
+        node = BulletRigidBodyNode(f'Block_{x}_{y}_{z}')
         node.addShape(shape)
-        node.setMass(0)  # Static block
+        node.setMass(0)
 
         np = render.attachNewNode(node)
         np.setPos(x, y, z)
+        node.setPythonTag("nodepath", np)
         self.physics_world.attachRigidBody(node)
 
-        visual = self.block_model.copyTo(np)
-        visual.setScale(1, 1, 1)
-        visual.setTexture(loader.loadTexture("models/maps/envir-ground.jpg"))
+        visual = loader.loadModel("models/box")
+        visual.setScale(self.block_size)
 
-    def place_block(self):
-        # Get the player's position and direction
-        player_pos = self.player_np.getPos()
-        player_facing = self.camera.getQuat().getForward()  # Get the forward direction of the camera
+        r = random.uniform(0.4, 1.0)
+        g = random.uniform(0.6, 1.0)
+        b = random.uniform(0.4, 1.0)
+        visual.setColor(r, g, b, 1)
 
-        # Calculate the position to place the block
-        block_pos = player_pos + player_facing * 2  # Place the block 2 units in front of the player
+        visual.reparentTo(np)
+        self.blocks.append(np)
 
-        # Create the block at the calculated position
-        self.create_block(block_pos.x, block_pos.y, block_pos.z)
+        # Відтворення звуку при створенні блоку
+        self.place_sound.play()
+        return np
 
+    def create_flat_platform(self):
+        grid_size = 30
+        for x in range(-grid_size//2, grid_size//2):
+            for y in range(-grid_size//2, grid_size//2):
+                self.create_block(x * self.spacing, y * self.spacing, 0)
+
+    # ---------- ЖИТТЯ / СМЕРТЬ ----------
+    def player_died(self):
+        if self.is_dead:
+            return
+        print("💀 Гравець загинув!")
+        self.is_dead = True
+        self.velocity_z = 0.0
+        self.is_jumping = False
+        self.death_sound.play()  # Відтворення звуку смерті
+        self.show_respawn_ui()
+
+    def respawn_player(self):
+        print("🧬 Відродження!")
+        self.camera.setPos(self.spawn_pos)
+        self.velocity_z = 0.0
+        self.is_jumping = False
+        self.is_dead = False
+        self.respawn_sound.play()  # Відтворення звуку відродження
+        self.hide_respawn_ui()
+
+    # ---------- ІГРОВА ЛОГІКА ----------
     def update(self, task):
         dt = globalClock.getDt()
 
-        # Mouse look
+        # Якщо в меню або мертвий — логіка гри не виконується
+        if not self.game_started or self.is_dead:
+            return Task.cont
+
+        self.physics_world.doPhysics(dt)
+
+        is_down = base.mouseWatcherNode.is_button_down
+        direction = Vec3(0, 0, 0)
+
+        # WASD
+        if is_down(KeyboardButton.ascii_key('w')):
+            direction.y += 1
+        if is_down(KeyboardButton.ascii_key('s')):
+            direction.y -= 1
+        if is_down(KeyboardButton.ascii_key('a')):
+            direction.x -= 1
+        if is_down(KeyboardButton.ascii_key('d')):
+            direction.x += 1
+
+        # 🎯 Мишка — обертання
         if self.mouseWatcherNode.hasMouse():
             md = self.win.getPointer(0)
-            x = md.getX()
-            y = md.getY()
-            size = self.win.getProperties().getSize()
-            cx = int(size.x / 2)
-            cy = int(size.y / 2)
+            dx = md.getX() - self.center_x
+            dy = md.getY() - self.center_y
 
-            dx = x - cx
-            dy = y - cy
+            self.yaw -= dx * 0.1
+            self.pitch -= dy * 0.1
+            self.pitch = max(-90, min(90, self.pitch))
+            self.camera.setHpr(self.yaw, self.pitch, 0)
+            self.win.movePointer(0, self.center_x, self.center_y)
 
-            self.heading -= dx * self.mouse_sensitivity
-            self.pitch = max(-90, min(90, self.pitch - dy * self.mouse_sensitivity))
-            self.player_np.setH(self.heading)
-            self.camera.setP(self.pitch)
+        # 🎮 Рух у напрямку камери (горизонтально)
+        cam_vec = self.camera.getQuat().getForward()
+        right_vec = self.camera.getQuat().getRight()
+        move_vec = (cam_vec * direction.y + right_vec * direction.x)
+        if move_vec.length_squared() > 0:
+            move_vec.normalize()
+            self.camera.setPos(self.camera.getPos() + move_vec * self.speed * dt)
 
-            self.center_mouse()
+        # 👣 Перевірка землі під камерою (рейтрейс вниз)
+        cam_pos = self.camera.getPos()
+        ray_from = Point3(cam_pos.x, cam_pos.y, cam_pos.z)
+        ray_to   = Point3(cam_pos.x, cam_pos.y, cam_pos.z - 100.0)
+        result = self.physics_world.rayTestClosest(ray_from, ray_to)
 
-        # Movement
-        walk_dir = Vec3(0, 0, 0)
-        quat = self.player_np.getQuat()
+        ground_available = result.hasHit()
+        target_ground_cam_z = None
+        if ground_available:
+            hit_pos = result.getHitPos()
+            ground_top_z = hit_pos.z
+            target_ground_cam_z = ground_top_z + self.eye_height
 
-        if self.keys["w"]:
-            walk_dir += Vec3(0, 1, 0)
-        if self.keys["s"]:
-            walk_dir += Vec3(0, -1, 0)
-        if self.keys["a"]:
-            walk_dir += Vec3(-1, 0, 0)
-        if self.keys["d"]:
-            walk_dir += Vec3(1, 0, 0)
+        # ⏫ Стрибок
+        is_on_ground = False
+        if ground_available:
+            if (self.camera.getZ() <= target_ground_cam_z + self.ground_snap_distance
+                and self.velocity_z <= 0.05):
+                is_on_ground = True
 
-        walk_dir = quat.xform(walk_dir)  # Apply rotation
-        walk_dir.setZ(0)  # Keep movement on the X-Y plane
+        if is_down(KeyboardButton.space()) and is_on_ground:
+            self.velocity_z = self.jump_speed
+            self.is_jumping = True
 
-        if walk_dir.lengthSquared() > 0:
-            walk_dir.normalize()
-            walk_dir *= 5.0
+        # 🪂 Гравітація + “прилипання” до землі
+        self.velocity_z += -9.8 * dt
+        new_z = self.camera.getZ() + self.velocity_z * dt
 
-        self.player_node.setLinearMovement(walk_dir, is_local=False)
+        if ground_available and self.velocity_z <= 0 and new_z <= target_ground_cam_z:
+            new_z = target_ground_cam_z
+            self.velocity_z = 0.0
+            self.is_jumping = False
 
-        # Jump
-        if self.keys["space"] and self.player_node.isOnGround():
-            self.player_node.doJump()
+        self.camera.setZ(new_z)
 
-        # Physics step
-        self.physics_world.doPhysics(dt, 10, 1.0 / 300.0)
+        # 💀 Перевірка на смерть при падінні
+        if (self.camera.getZ() < self.death_height) and (not self.is_dead):
+            self.player_died()
 
         return Task.cont
 
+    # ---------- ВЗАЄМОДІЯ З БЛОКАМИ ----------
+    def place_block(self):
+        if self.is_dead or not self.game_started:
+            return
+        direction = self.camera.getQuat().getForward().normalized()
+        origin = self.camera.getPos()
+        target_pos = origin + direction * 2.0
 
-app = MinecraftPhysics()
+        x = round(target_pos.x / self.spacing) * self.spacing
+        y = round(target_pos.y / self.spacing) * self.spacing
+        z = round(target_pos.z / self.spacing) * self.spacing
+
+        self.create_block(x, y, z)
+
+    def break_block(self):
+        if self.is_dead or not self.game_started:
+            return
+        origin = self.camera.getPos()
+        direction = self.camera.getQuat().getForward().normalized()
+        ray_from = origin
+        ray_to = origin + direction * 3.0
+
+        result = self.physics_world.rayTestClosest(ray_from, ray_to)
+        if result.hasHit():
+            hit_node = result.getNode()
+            np = hit_node.getPythonTag("nodepath")
+
+            if np and np in self.blocks:
+                self.physics_world.removeRigidBody(hit_node)
+                np.removeNode()
+                self.blocks.remove(np)
+
+                # Відтворення звуку при знищенні блоку
+                self.break_sound.play()
+
+app = MinecraftClone()
 app.run()
