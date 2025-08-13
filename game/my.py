@@ -5,7 +5,9 @@ from direct.task import Task
 from panda3d.core import KeyboardButton, WindowProperties
 from direct.gui.DirectGui import DirectButton, DirectFrame
 from direct.gui.OnscreenText import OnscreenText
-import random, sys
+import random, sys, json, os
+
+SAVE_FILE = "world_save.json"
 
 class MinecraftClone(ShowBase):
     def __init__(self):
@@ -23,7 +25,8 @@ class MinecraftClone(ShowBase):
         self.physics_world.setGravity(Vec3(0, 0, -9.8))
 
         # 📦 Параметри світу
-        self.blocks = []
+        self.blocks = []              # всі NodePath блоків (і базових, і динамічних)
+        self.base_positions = set()   # координати базових блоків (щоб не зберігати/не дублювати їх)
         self.block_size = 1.5
         self.spacing = 1.6
 
@@ -61,6 +64,10 @@ class MinecraftClone(ShowBase):
         self.accept("mouse3", self.place_block)
         self.accept("mouse1", self.break_block)
         self.accept("escape", self.on_escape)
+        self.accept("p", self.save_world)  # збереження світу на P
+
+        # Гарантоване автозбереження при закритті (кнопка закриття вікна/Alt+F4)
+        base.exitFunc = self.exit_game
 
         # Оновлення
         self.taskMgr.add(self.update, "update")
@@ -76,10 +83,17 @@ class MinecraftClone(ShowBase):
         if not visible:
             self.win.movePointer(0, self.center_x, self.center_y)
 
+    def exit_game(self):
+        # Автозбереження світу перед виходом
+        try:
+            self.save_world()
+        finally:
+            sys.exit(0)
+
     def on_escape(self):
         if not self.game_started:
-            sys.exit(0)
-        # Якщо в грі — повернутися до меню паузи (можна розширити)
+            self.exit_game()
+        # Якщо в грі — повернутися до меню паузи
         self.show_main_menu()
 
     # ---------- МЕНЮ ----------
@@ -117,7 +131,7 @@ class MinecraftClone(ShowBase):
             pos=(0, 0, -0.2),
             frameColor=(1, 0.2, 0.2, 1),      # червоний фон
             text_fg=(0, 0, 0, 1),             # чорний текст
-            command=sys.exit,
+            command=self.exit_game,           # автозбереження перед виходом
             parent=self.menu_ui,
             relief=1
         )
@@ -143,6 +157,8 @@ class MinecraftClone(ShowBase):
         if not hasattr(self, "world_initialized"):
             self.init_world()
             self.world_initialized = True
+            # Автозавантаження збереженого світу (тільки динамічні блоки, без платформи)
+            self.load_world()
 
         # Старт
         self.game_started = True
@@ -158,7 +174,6 @@ class MinecraftClone(ShowBase):
     def create_respawn_ui(self):
         if self.respawn_ui is not None:
             return
-
 
         self.respawn_ui = DirectFrame(
             frameColor=(0, 0, 0, 0.6),
@@ -182,7 +197,7 @@ class MinecraftClone(ShowBase):
             text="Вийти",
             scale=0.08,
             pos=(0.3, 0, -0.1),
-            command=sys.exit,
+            command=self.exit_game,  # автозбереження перед виходом
             parent=self.respawn_ui,
             frameColor=(1, 0.2, 0.2, 1),
             text_fg=(0, 0, 0, 1),
@@ -214,7 +229,7 @@ class MinecraftClone(ShowBase):
         self.yaw = 0
         self.camera.setHpr(self.yaw, self.pitch, 0)
 
-    def create_block(self, x, y, z):
+    def create_block(self, x, y, z, is_base=False):
         half_size = self.block_size / 2
         shape = BulletBoxShape(Vec3(half_size, half_size, half_size))
         node = BulletRigidBodyNode(f'Block_{x}_{y}_{z}')
@@ -224,6 +239,7 @@ class MinecraftClone(ShowBase):
         np = render.attachNewNode(node)
         np.setPos(x, y, z)
         node.setPythonTag("nodepath", np)
+        node.setPythonTag("is_base", is_base)
         self.physics_world.attachRigidBody(node)
 
         visual = loader.loadModel("models/box")
@@ -237,15 +253,19 @@ class MinecraftClone(ShowBase):
         visual.reparentTo(np)
         self.blocks.append(np)
 
-        # Відтворення звуку при створенні блоку
+        # Відтворення звуку при створенні блоку (не для масового створення?)
         self.place_sound.play()
         return np
 
     def create_flat_platform(self):
         grid_size = 30
-        for x in range(-grid_size//2, grid_size//2):
-            for y in range(-grid_size//2, grid_size//2):
-                self.create_block(x * self.spacing, y * self.spacing, 0)
+        for x in range(-grid_size // 2, grid_size // 2):
+            for y in range(-grid_size // 2, grid_size // 2):
+                bx = x * self.spacing
+                by = y * self.spacing
+                bz = 0
+                self.create_block(bx, by, bz, is_base=True)
+                self.base_positions.add((bx, by, bz))
 
     # ---------- ЖИТТЯ / СМЕРТЬ ----------
     def player_died(self):
@@ -255,7 +275,7 @@ class MinecraftClone(ShowBase):
         self.is_dead = True
         self.velocity_z = 0.0
         self.is_jumping = False
-        self.death_sound.play()  # Відтворення звуку смерті
+        self.death_sound.play()
         self.show_respawn_ui()
 
     def respawn_player(self):
@@ -264,7 +284,7 @@ class MinecraftClone(ShowBase):
         self.velocity_z = 0.0
         self.is_jumping = False
         self.is_dead = False
-        self.respawn_sound.play()  # Відтворення звуку відродження
+        self.respawn_sound.play()
         self.hide_respawn_ui()
 
     # ---------- ІГРОВА ЛОГІКА ----------
@@ -363,7 +383,11 @@ class MinecraftClone(ShowBase):
         y = round(target_pos.y / self.spacing) * self.spacing
         z = round(target_pos.z / self.spacing) * self.spacing
 
-        self.create_block(x, y, z)
+        # Ігноруємо, якщо намагаємось ставити в позицію базової платформи (можна дозволити — за бажанням)
+        if (x, y, z) in self.base_positions:
+            return
+
+        self.create_block(x, y, z, is_base=False)
 
     def break_block(self):
         if self.is_dead or not self.game_started:
@@ -379,6 +403,10 @@ class MinecraftClone(ShowBase):
             np = hit_node.getPythonTag("nodepath")
 
             if np and np in self.blocks:
+                # Не дозволяємо ламати базову платформу
+                if hit_node.getPythonTag("is_base"):
+                    return
+
                 self.physics_world.removeRigidBody(hit_node)
                 np.removeNode()
                 self.blocks.remove(np)
@@ -386,5 +414,56 @@ class MinecraftClone(ShowBase):
                 # Відтворення звуку при знищенні блоку
                 self.break_sound.play()
 
+    # ---------- ЗБЕРЕЖЕННЯ / ЗАВАНТАЖЕННЯ ----------
+    def save_world(self):
+        # Зберігаємо лише НЕбазові блоки (динамічні)
+        data = []
+        for np in self.blocks:
+            node = np.node()
+            if node.getPythonTag("is_base"):
+                continue
+            pos = np.getPos()
+            data.append({"x": float(pos.x), "y": float(pos.y), "z": float(pos.z)})
+
+        with open(SAVE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        print(f"✅ Світ збережено у {SAVE_FILE}")
+
+    def clear_dynamic_blocks(self):
+        # Видалити всі динамічні блоки перед завантаженням, щоб не дублювати
+        to_remove = []
+        for np in self.blocks:
+            node = np.node()
+            if not node.getPythonTag("is_base"):
+                to_remove.append(np)
+        for np in to_remove:
+            node = np.node()
+            self.physics_world.removeRigidBody(node)
+            np.removeNode()
+            self.blocks.remove(np)
+
+    def load_world(self):
+        if not os.path.exists(SAVE_FILE):
+            print("ℹ️ Немає збереженого світу.")
+            return
+
+        # Очищуємо динамічні блоки перед завантаженням
+        self.clear_dynamic_blocks()
+
+        with open(SAVE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        for block_data in data:
+            x = float(block_data["x"])
+            y = float(block_data["y"])
+            z = float(block_data["z"])
+            # захист від випадкового дублювання базових
+            if (x, y, z) in self.base_positions:
+                continue
+            self.create_block(x, y, z, is_base=False)
+
+        print("🌍 Світ завантажено!")
+
+# Запуск
 app = MinecraftClone()
 app.run()
