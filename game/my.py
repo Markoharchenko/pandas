@@ -7,7 +7,7 @@ from direct.gui.DirectGui import DirectButton, DirectFrame
 from direct.gui.OnscreenText import OnscreenText
 import random, sys, json, os
 
-SAVE_FILE = "world_save.json"
+SAVE_FILE = "world_save.json"#GJO0YT
 
 class MinecraftClone(ShowBase):
     def __init__(self):
