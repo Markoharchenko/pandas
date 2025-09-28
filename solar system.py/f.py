@@ -2,8 +2,11 @@ from direct.showbase.ShowBase import ShowBase
 from panda3d.core import (
     AmbientLight, PointLight, Vec4, Material, TransparencyAttrib,
     Geom, GeomNode, GeomLines, GeomTriangles,
-    GeomVertexFormat, GeomVertexData, GeomVertexWriter
+    GeomVertexFormat, GeomVertexData, GeomVertexWriter, TextNode
 )
+from direct.gui.OnscreenText import OnscreenText
+from direct.gui.OnscreenImage import OnscreenImage
+from direct.gui.DirectGui import DirectFrame
 import math
 import random
 
@@ -40,7 +43,7 @@ def make_orbit_node(name: str, radius: float, segments: int = 160, alpha: float 
     return node
 
 # =========================
-# Кільце (анулюс) для кілець планет (отримує текстуру PNG з альфою)
+# Кільце (анулюс) для кілець планет (текстура PNG з альфою)
 # =========================
 def make_ring_node(name: str, inner_r: float, outer_r: float, segments: int = 180) -> GeomNode:
     fmt = GeomVertexFormat.getV3c4()
@@ -78,10 +81,16 @@ def make_ring_node(name: str, inner_r: float, outer_r: float, segments: int = 18
 # =========================
 class Planet:
     def __init__(self, base, name, radius, distance, orbit_period,
-                 texture=None, spin_speed=25.0, tilt=0.0):
+                 texture=None, spin_speed=25.0, tilt=0.0, moons_count=0):
         self.base = base
         self.name = name
-        # умовна орбітальна швидкість (не реальна анімаційна)
+        self.radius = radius
+        self.distance = distance
+        self.orbit_period = orbit_period
+        self.tilt = tilt
+        self.moons_count = moons_count
+
+        # умовна орбітальна швидкість (анімаційна)
         self.angular_speed = 360.0 / orbit_period
         self.spin_speed = spin_speed
 
@@ -94,6 +103,7 @@ class Planet:
         self.model.setPos(distance * SCALE_FACTOR, 0, 0)
         self.model.setScale(radius * SCALE_FACTOR)
 
+        self.texture_file = texture
         if texture:
             tex = base.loader.loadTexture(texture)
             self.model.setTexture(tex, 1)
@@ -113,11 +123,8 @@ class Planet:
         self.moons.append(moon)
 
     def update(self, dt, time_factor):
-        # рух планети навколо Сонця
         self.pivot.setH(self.pivot.getH() + self.angular_speed * dt * time_factor)
-        # власне обертання
         self.model.setH(self.model.getH() + self.spin_speed * dt * time_factor)
-        # супутники
         for m in self.moons:
             m.update(dt, time_factor)
 
@@ -153,7 +160,7 @@ class Moon:
 # Пояс астероїдів (каменисті, різної форми, з текстурою)
 # =========================
 class AsteroidBelt:
-    def __init__(self, base, inner_radius=30, outer_radius=38, count=350):
+    def __init__(self, base, inner_radius=30, outer_radius=38, count=400):
         self.base = base
         self.asteroids = []
         self.asteroid_tex = base.loader.loadTexture("asteroid.jpg")
@@ -208,6 +215,11 @@ class SolarSystemApp(ShowBase):
         self.camera.setPos(*self.default_cam_pos)
         self.camera.lookAt(0, 0, 0)
 
+        # Завантаження шрифту з підтримкою кирилиці
+        # Поклади файл шрифту (наприклад, DejaVuSans.ttf) у папку з грою
+        self.font = self.loader.loadFont("DejaVuSans.ttf")
+        TextNode.setDefaultFont(self.font)
+
         # світло
         amb = AmbientLight("ambient")
         amb.setColor(Vec4(0.12, 0.12, 0.16, 1))
@@ -249,14 +261,14 @@ class SolarSystemApp(ShowBase):
 
         # планети (умовні періоди)
         self.planets = [
-            Planet(self, "Mercury", 0.6, 10, 10,  texture="mercury.jpg"),
-            Planet(self, "Venus",   0.9, 16, 18,  texture="venus.jpg"),
-            Planet(self, "Earth",   1.0, 22, 24,  texture="earth.jpg",  tilt=23.5),
-            Planet(self, "Mars",    0.8, 28, 46,  texture="mars.jpg",   tilt=25.0),
-            Planet(self, "Jupiter", 2.5, 40, 120, texture="jupiter.jpg"),
-            Planet(self, "Saturn",  2.1, 52, 180, texture="saturn.jpg", tilt=27.0),
-            Planet(self, "Uranus",  1.7, 64, 260, texture="uranus.jpg", tilt=98.0),
-            Planet(self, "Neptune", 1.6, 76, 320, texture="neptune.jpg", tilt=28.0),
+            Planet(self, "Меркурій", 0.6, 10, 10,  texture="mercury.jpg", moons_count=0),
+            Planet(self, "Венера",   0.9, 16, 18,  texture="venus.jpg",   moons_count=0),
+            Planet(self, "Земля",    1.0, 22, 24,  texture="earth.jpg",   tilt=23.5, moons_count=1),
+            Planet(self, "Марс",     0.8, 28, 46,  texture="mars.jpg",    tilt=25.0, moons_count=2),
+            Planet(self, "Юпітер",   2.5, 40, 120, texture="jupiter.jpg", moons_count=79),
+            Planet(self, "Сатурн",   2.1, 52, 180, texture="saturn.jpg",  tilt=27.0, moons_count=82),
+            Planet(self, "Уран",     1.7, 64, 260, texture="uranus.jpg",  tilt=98.0, moons_count=27),
+            Planet(self, "Нептун",   1.6, 76, 320, texture="neptune.jpg", tilt=28.0, moons_count=14),
         ]
 
         # супутники (без візуальних орбіт)
@@ -268,66 +280,83 @@ class SolarSystemApp(ShowBase):
         # пояс астероїдів
         self.asteroid_belt = AsteroidBelt(self, inner_radius=30, outer_radius=38, count=400)
 
-        # керування камерою
+        # словник для швидкого доступу
         self.planet_dict = {p.name: p for p in self.planets}
-        self.accept("1", lambda: self.focus_on_planet("Mercury"))
-        self.accept("2", lambda: self.focus_on_planet("Venus"))
-        self.accept("3", lambda: self.focus_on_planet("Earth"))
-        self.accept("4", lambda: self.focus_on_planet("Mars"))
-        self.accept("5", lambda: self.focus_on_planet("Jupiter"))
-        self.accept("6", lambda: self.focus_on_planet("Saturn"))
-        self.accept("7", lambda: self.focus_on_planet("Uranus"))
-        self.accept("8", lambda: self.focus_on_planet("Neptune"))
+
+        # інформаційна панель (UI)
+        self.info_visible = True
+        self.info_frame = None
+        self.info_text = None
+        self.info_image = None
+
+        # індикатор часу зверху праворуч
+        self.time_factor = 1.0
+        self.time_text = OnscreenText(
+            text="Час: x1.00",
+            pos=(1.15, 0.95), scale=0.05, fg=(1,1,1,1), align=TextNode.ARight, mayChange=True, font=self.font
+        )
+
+        # керування камерою
+        self.accept("1", lambda: self.focus_on_planet("Меркурій"))
+        self.accept("2", lambda: self.focus_on_planet("Венера"))
+        self.accept("3", lambda: self.focus_on_planet("Земля"))
+        self.accept("4", lambda: self.focus_on_planet("Марс"))
+        self.accept("5", lambda: self.focus_on_planet("Юпітер"))
+        self.accept("6", lambda: self.focus_on_planet("Сатурн"))
+        self.accept("7", lambda: self.focus_on_planet("Уран"))
+        self.accept("8", lambda: self.focus_on_planet("Нептун"))
         self.accept("0", self.reset_camera)
 
         # керування часом
-        self.time_factor = 1.0
         self.accept("+", self.speed_up)
         self.accept("-", self.slow_down)
-        self.accept("=", self.reset_time)   # на багатьох клавіатурах '=' зручно для скидання
-        self.accept("r", self.reset_time)   # альтернативний скидання
+        self.accept("=", self.reset_time)
+        self.accept("r", self.reset_time)
+
+        # показ/приховування панелі
+        self.accept("i", self.toggle_info)
 
         # оновлення
         self.follow_target = None
         self.taskMgr.add(self.update_task, "update-orbits")
 
     def add_moons(self):
-        earth = self._get("Earth")
-        if earth:
-            earth.add_moon(Moon(self, earth, "Moon", radius=0.27, distance=2.5, orbit_period=5.0, texture="moon.jpg"))
+        zemlya = self._get("Земля")
+        if zemlya:
+            zemlya.add_moon(Moon(self, zemlya, "Місяць", radius=0.27, distance=2.5, orbit_period=5.0, texture="moon.jpg"))
 
-        mars = self._get("Mars")
+        mars = self._get("Марс")
         if mars:
-            mars.add_moon(Moon(self, mars, "Phobos", radius=0.12, distance=1.8, orbit_period=3.0, texture="phobos.jpg"))
-            mars.add_moon(Moon(self, mars, "Deimos", radius=0.08, distance=2.6, orbit_period=5.0, texture="deimos.jpg"))
+            mars.add_moon(Moon(self, mars, "Фобос", radius=0.12, distance=1.8, orbit_period=3.0, texture="phobos.jpg"))
+            mars.add_moon(Moon(self, mars, "Деймос", radius=0.08, distance=2.6, orbit_period=5.0, texture="deimos.jpg"))
 
-        jupiter = self._get("Jupiter")
-        if jupiter:
-            jupiter.add_moon(Moon(self, jupiter, "Io",       radius=0.36, distance=3.0, orbit_period=4.0, texture="io.jpg"))
-            jupiter.add_moon(Moon(self, jupiter, "Europa",   radius=0.31, distance=3.8, orbit_period=5.0, texture="europa.jpg"))
-            jupiter.add_moon(Moon(self, jupiter, "Ganymede", radius=0.41, distance=4.6, orbit_period=6.0, texture="ganimede.jpg"))
-            jupiter.add_moon(Moon(self, jupiter, "Callisto", radius=0.38, distance=5.4, orbit_period=7.0, texture="calisto.jpg"))
+        yupiter = self._get("Юпітер")
+        if yupiter:
+            yupiter.add_moon(Moon(self, yupiter, "Іо",       radius=0.36, distance=3.0, orbit_period=4.0, texture="io.jpg"))
+            yupiter.add_moon(Moon(self, yupiter, "Європа",   radius=0.31, distance=3.8, orbit_period=5.0, texture="europa.jpg"))
+            yupiter.add_moon(Moon(self, yupiter, "Ганімед",  radius=0.41, distance=4.6, orbit_period=6.0, texture="ganimede.jpg"))
+            yupiter.add_moon(Moon(self, yupiter, "Каллісто", radius=0.38, distance=5.4, orbit_period=7.0, texture="calisto.jpg"))
 
-        saturn = self._get("Saturn")
+        saturn = self._get("Сатурн")
         if saturn:
-            saturn.add_moon(Moon(self, saturn, "Titan",     radius=0.35, distance=4.2, orbit_period=6.5, texture="titan.jpg"))
-            saturn.add_moon(Moon(self, saturn, "Rhea",      radius=0.22, distance=3.4, orbit_period=6.0, texture="rhea.jpg"))
-            saturn.add_moon(Moon(self, saturn, "Enceladus", radius=0.15, distance=2.6, orbit_period=4.5, texture="enceladus.jpg"))
+            saturn.add_moon(Moon(self, saturn, "Титан",     radius=0.35, distance=4.2, orbit_period=6.5, texture="titan.jpg"))
+            saturn.add_moon(Moon(self, saturn, "Рея",       radius=0.22, distance=3.4, orbit_period=6.0, texture="rhea.jpg"))
+            saturn.add_moon(Moon(self, saturn, "Енцелад",   radius=0.15, distance=2.6, orbit_period=4.5, texture="enceladus.jpg"))
 
-        uranus = self._get("Uranus")
-        if uranus:
-            uranus.add_moon(Moon(self, uranus, "Titania", radius=0.20, distance=3.2, orbit_period=5.5, texture="titania.jpg"))
-            uranus.add_moon(Moon(self, uranus, "Oberon",  radius=0.19, distance=3.8, orbit_period=6.0, texture="oberon.jpg"))
-            uranus.add_moon(Moon(self, uranus, "Miranda", radius=0.12, distance=2.4, orbit_period=4.0, texture="miranda.jpg"))
+        uran = self._get("Уран")
+        if uran:
+            uran.add_moon(Moon(self, uran, "Тітанія", radius=0.20, distance=3.2, orbit_period=5.5, texture="titania.jpg"))
+            uran.add_moon(Moon(self, uran, "Оберон",  radius=0.19, distance=3.8, orbit_period=6.0, texture="oberon.jpg"))
+            uran.add_moon(Moon(self, uran, "Міранда", radius=0.12, distance=2.4, orbit_period=4.0, texture="miranda.jpg"))
 
-        neptune = self._get("Neptune")
-        if neptune:
-            neptune.add_moon(Moon(self, neptune, "Triton",  radius=0.27, distance=3.5, orbit_period=5.5, texture="triton.jpg"))
-            neptune.add_moon(Moon(self, neptune, "Proteus", radius=0.10, distance=2.6, orbit_period=4.5, texture="proteus.jpg"))
+        neptun = self._get("Нептун")
+        if neptun:
+            neptun.add_moon(Moon(self, neptun, "Тритон",  radius=0.27, distance=3.5, orbit_period=5.5, texture="triton.jpg"))
+            neptun.add_moon(Moon(self, neptun, "Протей",  radius=0.10, distance=2.6, orbit_period=4.5, texture="proteus.jpg"))
 
     def add_textured_rings(self):
         # Сатурн — тонкі кільця з текстурою
-        saturn = self._get("Saturn")
+        saturn = self._get("Сатурн")
         if saturn:
             s_scale = saturn.model.getScale().x
             s_ring_node = make_ring_node("Saturn-rings",
@@ -341,7 +370,7 @@ class SolarSystemApp(ShowBase):
             s_np.setTexture(s_tex, 1)
 
         # Уран — тонкі кільця з текстурою
-        uranus = self._get("Uranus")
+        uranus = self._get("Уран")
         if uranus:
             u_scale = uranus.model.getScale().x
             u_ring_node = make_ring_node("Uranus-rings",
@@ -355,7 +384,7 @@ class SolarSystemApp(ShowBase):
             u_np.setTexture(u_tex, 1)
 
         # Нептун — тонкі кільця з текстурою
-        neptune = self._get("Neptune")
+        neptune = self._get("Нептун")
         if neptune:
             n_scale = neptune.model.getScale().x
             n_ring_node = make_ring_node("Neptune-rings",
@@ -374,29 +403,91 @@ class SolarSystemApp(ShowBase):
                 return p
         return None
 
+    # інформаційна панель (створення/оновлення)
+    def show_info(self, planet: Planet):
+        if not self.info_visible:
+            return
+        self.clear_info()
+
+        # рамка-фон панелі (екранні координати: -1..1 по X, -1..1 по Y)
+        self.info_frame = DirectFrame(
+            frameColor=(0, 0, 0, 0.5),  # напівпрозорий чорний
+            frameSize=(-1.35, -0.35, 0.65, 0.95),  # лівий верхній прямокутник
+            pos=(0, 0, 0)
+        )
+
+        # зображення планети (іконка) ліворуч у панелі
+        if planet.texture_file:
+            self.info_image = OnscreenImage(
+                image=planet.texture_file,
+                pos=(-1.25, 0, 0.82),
+                scale=(0.12, 1, 0.12)
+            )
+            self.info_image.setTransparency(True)
+
+        # текст
+        self.info_text = OnscreenText(
+            text=(
+                f"{planet.name}\n"
+                f"Радіус: {planet.radius}\n"
+                f"Відстань: {planet.distance}\n"
+                f"Орбітальний період: {planet.orbit_period}\n"
+                f"Нахил осі: {planet.tilt}°\n"
+                f"Супутників: {planet.moons_count}\n"
+            ),
+            pos=(-1.05, 0.85),
+            scale=0.05,
+            fg=(1, 1, 1, 1),
+            align=TextNode.ALeft,
+            mayChange=True,
+            font=self.font
+        )
+
+    def clear_info(self):
+        if self.info_text:
+            self.info_text.destroy()
+            self.info_text = None
+        if self.info_image:
+            self.info_image.destroy()
+            self.info_image = None
+        if self.info_frame:
+            self.info_frame.destroy()
+            self.info_frame = None
+
     # керування камерою
     def focus_on_planet(self, name):
         planet = self.planet_dict.get(name)
         if planet:
             self.follow_target = planet
+            self.show_info(planet)
 
     def reset_camera(self):
         self.follow_target = None
         self.camera.setPos(*self.default_cam_pos)
         self.camera.lookAt(0, 0, 0)
+        self.clear_info()
 
     # керування часом
     def speed_up(self):
         self.time_factor *= 2.0
-        print(f"Прискорення часу: x{self.time_factor:.2f}")
+        self.time_text.setText(f"Час: x{self.time_factor:.2f}")
 
     def slow_down(self):
         self.time_factor *= 0.5
-        print(f"Сповільнення часу: x{self.time_factor:.2f}")
+        self.time_text.setText(f"Час: x{self.time_factor:.2f}")
 
     def reset_time(self):
         self.time_factor = 1.0
-        print("Час скинуто: x1.00")
+        self.time_text.setText("Час: x1.00")
+
+    # показ/приховування панелі
+    def toggle_info(self):
+        self.info_visible = not self.info_visible
+        if not self.info_visible:
+            self.clear_info()
+        else:
+            if self.follow_target:
+                self.show_info(self.follow_target)
 
     # головний апдейт
     def update_task(self, task):
