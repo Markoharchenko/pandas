@@ -242,7 +242,7 @@ class MinecraftClone(ShowBase):
         node.setPythonTag("is_base", is_base)
         self.physics_world.attachRigidBody(node)
 
-        visual = loader.loadModel("models/box")
+        visual = loader.loadModel("block.egg")
         visual.setScale(self.block_size)
 
         r = random.uniform(0.4, 1.0)
