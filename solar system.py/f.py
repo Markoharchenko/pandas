@@ -213,7 +213,6 @@ class SolarSystemApp(ShowBase):
 
         # Сонце
         self.sun = self.loader.loadModel("models/smiley")
-        self.sun.reparentTo(self.render)
         self.sun.setScale(6.0 * SCALE_FACTOR)
         self.sun.setPos(0, 0, 0)
         sun_tex = self.loader.loadTexture("sun.jpg")
@@ -222,6 +221,7 @@ class SolarSystemApp(ShowBase):
         self.sun_mat.setEmission((1.0, 1.0, 0.0, 1.0))
         self.sun.setMaterial(self.sun_mat)
         self.sun_light_np.reparentTo(self.sun)
+        self.sun.reparentTo(self.render)
 
         # Зоряне небо (сфера на камері)
         self.sky = self.loader.loadModel("models/smiley")
@@ -239,7 +239,7 @@ class SolarSystemApp(ShowBase):
         self.pulse_strength = 0.3
         self.sun_spin_speed = 6.0
 
-        # Планети
+        # Планети (візуальні параметри для симуляції, не реальні одиниці)
         self.planets = [
             Planet(self, "Меркурій", 0.6, 10, 10,  texture="mercury.jpg", moons_count=0),
             Planet(self, "Венера",   0.9, 16, 18,  texture="venus.jpg",   moons_count=0),
@@ -250,6 +250,35 @@ class SolarSystemApp(ShowBase):
             Planet(self, "Уран",     1.7, 64, 260, texture="uranus.jpg",  tilt=98.0, moons_count=27),
             Planet(self, "Нептун",   1.6, 76, 320, texture="neptune.jpg", tilt=28.0, moons_count=14),
         ]
+
+        # === Реальні дані для карток ===
+        self.planet_data = {
+            "Меркурій": {"Радіус": "2 439.7 км", "Відстань від Сонця": "57.9 млн км", "Орбітальний період": "88 діб", "Нахил осі": "0.03°", "Супутники": "0"},
+            "Венера": {"Радіус": "6 051.8 км", "Відстань від Сонця": "108.2 млн км", "Орбітальний період": "225 діб", "Нахил осі": "177.4°", "Супутники": "0"},
+            "Земля": {"Радіус": "6 371 км", "Відстань від Сонця": "149.6 млн км", "Орбітальний період": "365 діб", "Нахил осі": "23.5°", "Супутники": "1 (Місяць)"},
+            "Марс": {"Радіус": "3 389.5 км", "Відстань від Сонця": "227.9 млн км", "Орбітальний період": "687 діб", "Нахил осі": "25.2°", "Супутники": "2 (Фобос, Деймос)"},
+            "Юпітер": {"Радіус": "69 911 км", "Відстань від Сонця": "778.5 млн км", "Орбітальний період": "11.86 років", "Нахил осі": "3.1°", "Супутники": "79+"},
+            "Сатурн": {"Радіус": "58 232 км", "Відстань від Сонця": "1.43 млрд км", "Орбітальний період": "29.5 років", "Нахил осі": "26.7°", "Супутники": "82+"},
+            "Уран": {"Радіус": "25 362 км", "Відстань від Сонця": "2.87 млрд км", "Орбітальний період": "84 роки", "Нахил осі": "97.8°", "Супутники": "27+"},
+            "Нептун": {"Радіус": "24 622 км", "Відстань від Сонця": "4.5 млрд км", "Орбітальний період": "165 років", "Нахил осі": "28.3°", "Супутники": "14+"},
+        }
+        self.moon_data = {
+            "Місяць": {"Радіус": "1 737.4 км", "Відстань від Землі": "384 400 км", "Орбітальний період": "27.3 діб"},
+            "Фобос": {"Радіус": "11.27 км", "Відстань від Марса": "9 376 км", "Орбітальний період": "7 год 39 хв"},
+            "Деймос": {"Радіус": "6.2 км", "Відстань від Марса": "23 463 км", "Орбітальний період": "30 год 18 хв"},
+            "Іо": {"Радіус": "1 821.6 км", "Відстань від Юпітера": "421 700 км", "Орбітальний період": "1.77 діб"},
+            "Європа": {"Радіус": "1 560.8 км", "Відстань від Юпітера": "671 100 км", "Орбітальний період": "3.55 діб"},
+            "Ганімед": {"Радіус": "2 634.1 км", "Відстань від Юпітера": "1 070 400 км", "Орбітальний період": "7.15 діб"},
+            "Каллісто": {"Радіус": "2 410.3 км", "Відстань від Юпітера": "1 882 700 км", "Орбітальний період": "16.69 діб"},
+            "Титан": {"Радіус": "2 574.7 км", "Відстань від Сатурна": "1 221 870 км", "Орбітальний період": "15.95 діб"},
+            "Рея": {"Радіус": "763.8 км", "Відстань від Сатурна": "527 068 км", "Орбітальний період": "4.52 діб"},
+            "Енцелад": {"Радіус": "252.1 км", "Відстань від Сатурна": "237 948 км", "Орбітальний період": "1.37 діб"},
+            "Тітанія": {"Радіус": "788.4 км", "Відстань від Урана": "436 300 км", "Орбітальний період": "8.71 діб"},
+            "Оберон": {"Радіус": "761.4 км", "Відстань від Урана": "583 500 км", "Орбітальний період": "13.46 діб"},
+            "Міранда": {"Радіус": "235.8 км", "Відстань від Урана": "129 900 км", "Орбітальний період": "1.41 діб"},
+            "Тритон": {"Радіус": "1 353.4 км", "Відстань від Нептуна": "354 800 км", "Орбітальний період": "5.88 діб"},
+            "Протей": {"Радіус": "210 км", "Відстань від Нептуна": "117 600 км", "Орбітальний період": "1.12 діб"},
+        }
 
         # Місяці
         self.add_moons()
@@ -289,6 +318,12 @@ class SolarSystemApp(ShowBase):
             pos=(1.15, 0.90), scale=0.05, fg=(0.7, 1.0, 0.7, 1),
             align=TextNode.ARight, mayChange=True, font=self.font
         )
+        # Додатковий індикатор ваги на поточному фокусі
+        self.weight_hint_text = OnscreenText(
+            text="",
+            pos=(1.15, 0.85), scale=0.045, fg=(0.9, 0.9, 1.0, 1),
+            align=TextNode.ARight, mayChange=True, font=self.font
+        )
 
         # Окрема панель порівняння ваги
         self.weight_frame = None
@@ -311,7 +346,7 @@ class SolarSystemApp(ShowBase):
         self.accept("8", lambda: self.focus_on_planet("Нептун"))
         self.accept("0", self.reset_camera)
 
-        # Фокус на супутнику (клавіша f): циклічно переключає місяці вибраної планети
+        # Фокус на супутнику
         self.accept("f", self.focus_on_next_moon)
         self.moon_focus_index = {}  # ім'я планети -> індекс поточного супутника
 
@@ -348,7 +383,7 @@ class SolarSystemApp(ShowBase):
         # Порівняння ваги на всіх світах
         self.accept("g", self.toggle_weight_comparison)
 
-        # Параметри камери (вільне обертання навколо центру)
+        # Параметри камери
         self.cam_angle_h = 0.0   # азимут
         self.cam_angle_p = 20.0  # підйом
         self.cam_distance = 150 * SCALE_FACTOR
@@ -460,58 +495,71 @@ class SolarSystemApp(ShowBase):
                 return p
         return None
 
-    # ==== Інфо-панель ====
+    # ==== Інфо-панель (оновлено з реальними даними) ====
     def show_info(self, target):
         if not self.info_visible:
             return
         self.clear_info()
 
-        self.info_frame = DirectFrame(frameColor=(0, 0, 0, 0.5), frameSize=(-1.35, -0.35, 0.65, 0.95), pos=(0, 0, 0))
+        self.info_frame = DirectFrame(frameColor=(0, 0, 0, 0.5), frameSize=(-1.35, -0.35, 0.95, 0.95), pos=(0, 0, 0))
 
-        # Планета або супутник
+        # Текстура прев'ю
         texture_file = getattr(target, "texture_file", None)
         if texture_file:
             self.info_image = OnscreenImage(image=texture_file, pos=(-1.25, 0, 0.82), scale=(0.12, 1, 0.12))
             self.info_image.setTransparency(True)
 
-        # Базовий текст
-        base_text = ""
+        # Базовий текст із реальних словників
+        base_lines = []
         if isinstance(target, Planet):
-            base_text = (
-                f"{target.name}\n"
-                f"Радіус: {target.radius}\n"
-                f"Відстань: {target.distance}\n"
-                f"Орбітальний період: {target.orbit_period}\n"
-                f"Нахил осі: {target.tilt}°\n"
-                f"Супутників: {target.moons_count}\n"
-            )
+            data = self.planet_data.get(target.name)
+            base_lines.append(f"{target.name}")
+            if data:
+                for k, v in data.items():
+                    base_lines.append(f"{k}: {v}")
+            else:
+                # fallback якщо немає у словнику
+                base_lines.extend([
+                    f"Радіус (візуальний): {target.radius}",
+                    f"Відстань (візуальна): {target.distance}",
+                    f"Орбітальний період (візуальний): {target.orbit_period}",
+                    f"Нахил осі (візуальний): {target.tilt}°",
+                    f"Супутників (відомо): {target.moons_count}",
+                ])
         else:
             # Це супутник
-            base_text = (
-                f"{target.name}\n"
-                f"Супутник планети: {target.planet.name}\n"
-            )
+            data = self.moon_data.get(target.name)
+            base_lines.append(f"{target.name}")
+            if data:
+                for k, v in data.items():
+                    base_lines.append(f"{k}: {v}")
+                base_lines.append(f"Планета: {target.planet.name}")
+            else:
+                base_lines.extend([
+                    f"Супутник планети: {target.planet.name}",
+                    f"Радіус (візуальний): {target.model.getScale().x / SCALE_FACTOR:.2f}",
+                ])
 
         # Додати вагу людини за наявності g
-        g_text = ""
-        # Якщо це супутник і для нього є g — показати його; інакше показати g планети
         g_key = target.name
         if isinstance(target, Moon) and g_key not in self.surface_gravity:
             g_key = target.planet.name
-
         g_val = self.surface_gravity.get(g_key)
         if g_val is not None:
             weight = self.human_mass * g_val
             if g_key != target.name:
-                g_text += f"g (на {g_key}): {g_val:.2f} м/с²\n"
+                base_lines.append(f"g (на {g_key}): {g_val:.2f} м/с²")
             else:
-                g_text += f"g: {g_val:.2f} м/с²\n"
-            g_text += f"Вага людини ({self.human_mass} кг): {weight:.1f} Н\n"
+                base_lines.append(f"g: {g_val:.2f} м/с²")
+            base_lines.append(f"Вага людини ({self.human_mass} кг): {weight:.1f} Н")
 
         self.info_text = OnscreenText(
-            text=base_text + g_text,
+            text="\n".join(base_lines),
             pos=(-1.05, 0.85), scale=0.05, fg=(1, 1, 1, 1), align=TextNode.ALeft, mayChange=True, font=self.font
         )
+
+        # Оновити динамічний індикатор ваги
+        self.update_weight_hint()
 
     def clear_info(self):
         if self.info_text:
@@ -549,14 +597,13 @@ class SolarSystemApp(ShowBase):
             self.show_info(planet)
 
     def focus_on_next_moon(self):
-        # Визначити активну планету: якщо фокус на планеті, беремо її; якщо на місяці — її планету.
+        # Визначити активну планету
         planet = None
         if isinstance(self.follow_target, Planet):
             planet = self.follow_target
         elif isinstance(self.follow_target, Moon):
             planet = self.follow_target.planet
         else:
-            # за замовчуванням — Земля
             planet = self.planet_dict.get("Земля")
 
         if not planet or not planet.moons:
@@ -576,6 +623,7 @@ class SolarSystemApp(ShowBase):
         self.cam_angle_p = 20.0
         self.cam_distance = 150 * SCALE_FACTOR
         self.clear_info()
+        self.update_weight_hint()
 
     def speed_up(self):
         self.time_factor *= 2.0
@@ -589,27 +637,26 @@ class SolarSystemApp(ShowBase):
         self.time_factor = 1.0
         self.time_text.setText("Час: x1.00")
 
+    # ==== Маса людини: кнопки [ та ] ====
     def increase_mass(self):
         self.human_mass += 5
         self.mass_text.setText(f"Маса людини: {self.human_mass} кг")
-        # Оновити інфо-панель, якщо активна
         if self.follow_target and self.info_visible:
             self.show_info(self.follow_target)
-        # Якщо таблиця порівняння відкрита — перебудувати
         if self.weight_frame:
             self.toggle_weight_comparison()
             self.toggle_weight_comparison()
+        self.update_weight_hint()
 
     def decrease_mass(self):
         self.human_mass = max(5, self.human_mass - 5)
         self.mass_text.setText(f"Маса людини: {self.human_mass} кг")
-        # Оновити інфо-панель, якщо активна
         if self.follow_target and self.info_visible:
             self.show_info(self.follow_target)
-        # Якщо таблиця порівняння відкрита — перебудувати
         if self.weight_frame:
             self.toggle_weight_comparison()
             self.toggle_weight_comparison()
+        self.update_weight_hint()
 
     def toggle_info(self):
         self.info_visible = not self.info_visible
@@ -642,36 +689,53 @@ class SolarSystemApp(ShowBase):
                 pos=(-1.2, 0.8), scale=0.05, fg=(1, 1, 0, 1), align=TextNode.ALeft, mayChange=False, font=self.font, parent=self.help_frame
             )
 
+    # Маленький індикатор ваги у верхньому правому куті
+    def update_weight_hint(self):
+        target = self.follow_target
+        if not target:
+            self.weight_hint_text.setText("")
+            return
+
+        g_key = target.name
+        if isinstance(target, Moon) and g_key not in self.surface_gravity:
+            g_key = target.planet.name
+        g_val = self.surface_gravity.get(g_key)
+        if g_val is None:
+            self.weight_hint_text.setText("")
+            return
+
+        w = self.human_mass * g_val
+        if g_key != getattr(target, "name", g_key):
+            self.weight_hint_text.setText(f"Вага на {g_key}: {w:.1f} Н")
+        else:
+            self.weight_hint_text.setText(f"Вага: {w:.1f} Н")
+
     # ==== Порівняння розмірів ====
     def show_size_comparison(self):
         if not self.comparison_mode:
-            # Ховаємо Сонце, орбіти та пояс
             self.hide_sun()
             for p in self.planets:
                 p.orbit_np.hide()
             self.asteroid_belt.root.hide()
 
-            # Зберігаємо позиції
             self.saved_positions = {p.name: (p.pivot, p.model.getPos(p.pivot)) for p in self.planets}
 
-            # Вирівнюємо планети в ряд у render (без текстових підписів)
-            x_offset = -30.0 * SCALE_FACTOR
-            spacing = 3.0
+            x_offset = -37.0 * SCALE_FACTOR
+            spacing = 5.0
             for p in self.planets:
                 p.model.wrtReparentTo(self.render)
                 p.model.setPos(x_offset, 0, 0)
                 x_offset += p.radius * spacing
 
-            # Камера для огляду ряду
             self.follow_target = None
             self.cam_angle_h = 0.0
             self.cam_angle_p = 10.0
-            self.cam_distance = 120 * SCALE_FACTOR
+            self.cam_distance = 220 * SCALE_FACTOR
 
             self.clear_info()
+            self.update_weight_hint()
             self.comparison_mode = True
         else:
-            # Повернути все
             for p in self.planets:
                 parent_np, local_pos = self.saved_positions[p.name]
                 p.model.wrtReparentTo(parent_np)
@@ -691,7 +755,7 @@ class SolarSystemApp(ShowBase):
     def update_task(self, task):
         dt = globalClock.getDt()
 
-        # Сонце (не пульсує під час порівняння)
+        # Сонце
         if not self.comparison_mode:
             self.sun.setH(self.sun.getH() + self.sun_spin_speed * dt * self.time_factor)
             self.pulse_time += dt * self.pulse_speed * self.time_factor
@@ -703,11 +767,11 @@ class SolarSystemApp(ShowBase):
         for p in self.planets:
             p.update(dt, self.time_factor)
 
-        # Пояс астероїдів (зупинений під час порівняння)
+        # Пояс астероїдів
         if not self.comparison_mode:
             self.asteroid_belt.update(dt, self.time_factor)
 
-        # Камера: або слідує за ціллю, або вільне обертання
+        # Камера
         if self.follow_target and not self.comparison_mode:
             pos = self.follow_target.model.getPos(self.render)
             self.camera.setPos(pos.x, pos.y - 10 * SCALE_FACTOR, pos.z + 3 * SCALE_FACTOR)
